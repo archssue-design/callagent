@@ -33,51 +33,111 @@ JSON 형식:
 통화 텍스트:
 {text}"""
 
+    fun keysOk(ctx: Context): Boolean {
+        val sttOk = if (Prefs.get(ctx, "stt_provider", "groq") == "openai") Prefs.get(ctx, "openai_key").isNotBlank() else Prefs.get(ctx, "groq_key").isNotBlank()
+        val llmOk = if (Prefs.get(ctx, "llm_provider", "groq") == "claude") Prefs.get(ctx, "anthropic_key").isNotBlank() else Prefs.get(ctx, "groq_key").isNotBlank()
+        return sttOk && llmOk
+    }
+
+    /** 429(무료 한도) 시 대기 후 재시도 */
+    private fun call(req: Request, label: String): String {
+        var last = ""
+        for (i in 0 until 3) {
+            http.newCall(req).execute().use { r ->
+                val s = r.body?.string() ?: ""
+                if (r.isSuccessful) return s
+                last = "$label 실패 ${r.code}: ${s.take(300)}"
+                if (r.code != 429 && r.code < 500) throw RuntimeException(last)
+                val wait = (r.header("retry-after")?.toLongOrNull() ?: 20L).coerceIn(5L, 90L)
+                Thread.sleep(wait * 1000)
+            }
+        }
+        throw RuntimeException(last)
+    }
+
     fun stt(ctx: Context, f: File): String {
-        val key = Prefs.get(ctx, "openai_key")
-        require(key.isNotBlank()) { "OpenAI API 키 없음" }
-        require(f.length() < 25L * 1024 * 1024) { "파일 25MB 초과(Whisper 제한)" }
+        val groq = Prefs.get(ctx, "stt_provider", "groq") != "openai"
+        val key = Prefs.get(ctx, if (groq) "groq_key" else "openai_key")
+        require(key.isNotBlank()) { if (groq) "Groq API 키 없음" else "OpenAI API 키 없음" }
+        require(f.length() < 25L * 1024 * 1024) { "파일 25MB 초과(STT 제한)" }
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("file", f.name, f.asRequestBody("audio/*".toMediaType()))
-            .addFormDataPart("model", "whisper-1")
+            .addFormDataPart("model", if (groq) "whisper-large-v3" else "whisper-1")
             .addFormDataPart("language", "ko")
+            .addFormDataPart("response_format", "json")
             .addFormDataPart("prompt", "건축사사무소 업무 통화. 해체계획서, 인허가, 감리, 견적서, 세금계산서, 착공신고, 사용승인.")
             .build()
-        val req = Request.Builder().url("https://api.openai.com/v1/audio/transcriptions")
-            .header("Authorization", "Bearer $key").post(body).build()
-        http.newCall(req).execute().use { r ->
-            val s = r.body?.string() ?: ""
-            if (!r.isSuccessful) throw RuntimeException("STT 실패 ${r.code}: ${s.take(300)}")
-            return JSONObject(s).getString("text")
+        val url = if (groq) "https://api.groq.com/openai/v1/audio/transcriptions" else "https://api.openai.com/v1/audio/transcriptions"
+        val req = Request.Builder().url(url).header("Authorization", "Bearer $key").post(body).build()
+        return JSONObject(call(req, "STT")).getString("text")
+    }
+
+    private fun parseJson(raw0: String): JSONObject {
+        var raw = raw0.trim()
+        val a = raw.indexOf('{'); val b = raw.lastIndexOf('}')
+        if (a >= 0 && b > a) raw = raw.substring(a, b + 1)
+        return JSONObject(raw)
+    }
+
+    private fun askLlm(ctx: Context, prompt: String): JSONObject {
+        if (Prefs.get(ctx, "llm_provider", "groq") == "claude") {
+            val key = Prefs.get(ctx, "anthropic_key"); require(key.isNotBlank()) { "Anthropic API 키 없음" }
+            val body = JSONObject().put("model", Prefs.get(ctx, "model", "claude-sonnet-4-6")).put("max_tokens", 3000)
+                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
+            val req = Request.Builder().url("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", key).header("anthropic-version", "2023-06-01").header("content-type", "application/json")
+                .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+            val arr = JSONObject(call(req, "Claude")).getJSONArray("content")
+            val sb = StringBuilder(); for (i in 0 until arr.length()) sb.append(arr.getJSONObject(i).optString("text"))
+            return parseJson(sb.toString())
         }
+        val key = Prefs.get(ctx, "groq_key"); require(key.isNotBlank()) { "Groq API 키 없음" }
+        val body = JSONObject().put("model", Prefs.get(ctx, "groq_model", "llama-3.3-70b-versatile"))
+            .put("temperature", 0.1).put("max_tokens", 3000)
+            .put("response_format", JSONObject().put("type", "json_object"))
+            .put("messages", JSONArray()
+                .put(JSONObject().put("role", "system").put("content", "You are a Korean business assistant. Respond only with valid JSON in Korean."))
+                .put(JSONObject().put("role", "user").put("content", prompt)))
+        val req = Request.Builder().url("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", "Bearer $key").header("content-type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        val txt = JSONObject(call(req, "Groq")).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+        return parseJson(txt)
     }
 
     fun analyze(ctx: Context, text: String, callTime: LocalDateTime, who: String): JSONObject {
-        val key = Prefs.get(ctx, "anthropic_key")
-        require(key.isNotBlank()) { "Anthropic API 키 없음" }
         val me = Prefs.get(ctx, "my_name", "이하정")
-        val prompt = PROMPT.replace("{me}", me)
+        val head = PROMPT.replace("{me}", me)
             .replace("{when}", callTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))
-            .replace("{dow}", WEEK[callTime.dayOfWeek.value - 1])
-            .replace("{who}", who).replace("{text}", text)
-        val body = JSONObject().put("model", Prefs.get(ctx, "model", "claude-sonnet-4-6")).put("max_tokens", 3000)
-            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
-        val req = Request.Builder().url("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", key).header("anthropic-version", "2023-06-01").header("content-type", "application/json")
-            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
-        http.newCall(req).execute().use { r ->
-            val s = r.body?.string() ?: ""
-            if (!r.isSuccessful) throw RuntimeException("Claude 실패 ${r.code}: ${s.take(300)}")
-            val arr = JSONObject(s).getJSONArray("content")
-            val sb = StringBuilder()
-            for (i in 0 until arr.length()) sb.append(arr.getJSONObject(i).optString("text"))
-            var raw = sb.toString().trim()
-            val a = raw.indexOf('{'); val b = raw.lastIndexOf('}')
-            if (a >= 0 && b > a) raw = raw.substring(a, b + 1)
-            val res = JSONObject(raw)
-            if (res.optString("통화상대방").isBlank()) res.put("통화상대방", who)
-            return res
+            .replace("{dow}", WEEK[callTime.dayOfWeek.value - 1]).replace("{who}", who)
+        val limit = if (Prefs.get(ctx, "llm_provider", "groq") == "claude") 60_000 else 4_500
+        val chunks = text.chunked(limit)
+        if (chunks.size == 1) return finish(ctx, head.replace("{text}", text), who)
+        // 긴 통화: 구간별 분석 후 병합 (무료 한도 TPM 대응)
+        var merged = finish(ctx, head.replace("{text}", "[통화 1/${chunks.size} 구간]\n" + chunks[0]), who)
+        for (i in 1 until chunks.size)
+            merged = mergeInto(merged, finish(ctx, head.replace("{text}", "[통화 ${i + 1}/${chunks.size} 구간]\n" + chunks[i]), who))
+        return merged
+    }
+
+    private fun finish(ctx: Context, prompt: String, who: String): JSONObject {
+        val res = askLlm(ctx, prompt)
+        if (res.optString("통화상대방").isBlank()) res.put("통화상대방", who)
+        return res
+    }
+
+    private fun mergeInto(a: JSONObject, b: JSONObject): JSONObject {
+        val keys = b.keys()
+        while (keys.hasNext()) {
+            val k = keys.next(); val v = b.opt(k) ?: continue
+            when (v) {
+                is JSONArray -> { val arr = a.optJSONArray(k) ?: JSONArray(); for (i in 0 until v.length()) arr.put(v.get(i)); a.put(k, arr) }
+                is String -> if (k == "핵심요약" || k == "후속연락문안") { val s = a.optString(k); if (v.isNotBlank() && v != "해당 없음") a.put(k, if (s.isBlank() || s == "해당 없음") v else "$s / $v") }
+                           else if (a.optString(k).isBlank()) a.put(k, v)
+                else -> if (!a.has(k)) a.put(k, v)
+            }
         }
+        return a
     }
 
     private fun join(o: JSONObject, k: String): String {

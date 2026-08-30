@@ -7,8 +7,19 @@
             android:textSize="14sp" android:fontFamily="monospace" android:paddingBottom="8dp"/>
         <Button android:id="@+id/btnPerm" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="1. 모든 파일 접근 권한 허용"/>
         <Button android:id="@+id/btnBattery" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="2. 배터리 최적화 제외"/>
-        <EditText android:id="@+id/etOpenai" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="OpenAI API 키" android:inputType="textNoSuggestions"/>
-        <EditText android:id="@+id/etAnthropic" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Anthropic API 키" android:inputType="textNoSuggestions"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="음성→텍스트(STT)" android:paddingTop="8dp"/>
+        <RadioGroup android:id="@+id/rgStt" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <RadioButton android:id="@+id/rbSttGroq" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Groq (무료)" android:checked="true"/>
+            <RadioButton android:id="@+id/rbSttOpenai" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="OpenAI (유료)"/>
+        </RadioGroup>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="통화 분석(LLM)"/>
+        <RadioGroup android:id="@+id/rgLlm" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <RadioButton android:id="@+id/rbLlmGroq" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Groq (무료)" android:checked="true"/>
+            <RadioButton android:id="@+id/rbLlmClaude" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Claude (유료)"/>
+        </RadioGroup>
+        <EditText android:id="@+id/etGroq" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Groq API 키 (무료, console.groq.com)" android:inputType="textNoSuggestions"/>
+        <EditText android:id="@+id/etOpenai" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="OpenAI API 키 (OpenAI 선택 시만)" android:inputType="textNoSuggestions"/>
+        <EditText android:id="@+id/etAnthropic" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Anthropic API 키 (Claude 선택 시만)" android:inputType="textNoSuggestions"/>
         <EditText android:id="@+id/etName" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="내 이름" android:inputType="text"/>
         <EditText android:id="@+id/etDirs" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="녹음 폴더 경로 (줄바꿈으로 여러 개)" android:inputType="textMultiLine" android:minLines="2"/>
         <CheckBox android:id="@+id/cbKakao" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="카카오톡 나와의채팅으로도 전송"/>

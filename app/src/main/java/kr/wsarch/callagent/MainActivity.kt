@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -22,6 +23,7 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvResults: TextView
+    private lateinit var etGroq: EditText
     private lateinit var etOpenai: EditText
     private lateinit var etAnthropic: EditText
     private lateinit var etName: EditText
@@ -35,7 +37,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         tvStatus = findViewById(R.id.tvStatus); tvResults = findViewById(R.id.tvResults)
-        etOpenai = findViewById(R.id.etOpenai); etAnthropic = findViewById(R.id.etAnthropic)
+        etGroq = findViewById(R.id.etGroq); etOpenai = findViewById(R.id.etOpenai); etAnthropic = findViewById(R.id.etAnthropic)
         etName = findViewById(R.id.etName); etDirs = findViewById(R.id.etDirs)
         etKakaoRest = findViewById(R.id.etKakaoRest); etKakaoRefresh = findViewById(R.id.etKakaoRefresh)
         cbKakao = findViewById(R.id.cbKakao); cbOld = findViewById(R.id.cbOld)
@@ -52,7 +54,9 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() { super.onResume(); refresh() }
 
     private fun load() {
-        etOpenai.setText(Prefs.get(this, "openai_key")); etAnthropic.setText(Prefs.get(this, "anthropic_key"))
+        etGroq.setText(Prefs.get(this, "groq_key")); etOpenai.setText(Prefs.get(this, "openai_key")); etAnthropic.setText(Prefs.get(this, "anthropic_key"))
+        findViewById<RadioButton>(if (Prefs.get(this, "stt_provider", "groq") == "openai") R.id.rbSttOpenai else R.id.rbSttGroq).isChecked = true
+        findViewById<RadioButton>(if (Prefs.get(this, "llm_provider", "groq") == "claude") R.id.rbLlmClaude else R.id.rbLlmGroq).isChecked = true
         etName.setText(Prefs.get(this, "my_name", "이하정"))
         val d = Prefs.get(this, "dirs").ifBlank { Agent.DEFAULT_DIRS.filter { File(it).isDirectory }.ifEmpty { Agent.DEFAULT_DIRS }.joinToString("\n") }
         etDirs.setText(d)
@@ -61,6 +65,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun save() {
+        Prefs.set(this, "groq_key", etGroq.text.toString().trim())
+        Prefs.set(this, "stt_provider", if (findViewById<RadioButton>(R.id.rbSttOpenai).isChecked) "openai" else "groq")
+        Prefs.set(this, "llm_provider", if (findViewById<RadioButton>(R.id.rbLlmClaude).isChecked) "claude" else "groq")
         Prefs.set(this, "openai_key", etOpenai.text.toString().trim())
         Prefs.set(this, "anthropic_key", etAnthropic.text.toString().trim())
         Prefs.set(this, "my_name", etName.text.toString().trim().ifBlank { "이하정" })
@@ -107,7 +114,8 @@ class MainActivity : AppCompatActivity() {
         tvStatus.text = listOf(
             "파일접근 권한 : ${if (allFiles) "OK" else "없음 → 1번 버튼"}",
             "배터리 제외   : ${if (pm.isIgnoringBatteryOptimizations(packageName)) "OK" else "미설정 → 2번 버튼"}",
-            "API 키        : ${if (Prefs.get(this, "openai_key").isNotBlank() && Prefs.get(this, "anthropic_key").isNotBlank()) "OK" else "미입력"}",
+            "API 키        : ${if (Analyzer.keysOk(this)) "OK" else "미입력"}",
+            "공급자        : STT=${Prefs.get(this, "stt_provider", "groq")} / 분석=${Prefs.get(this, "llm_provider", "groq")}",
             "녹음 폴더     : ${found.size}개 발견, 오디오 ${nFiles}개",
             "분석 완료 ${db.count("done")}건 / 오류 ${db.count("error")}건 / 제외 ${db.count("skipped")}건",
             "자동감시      : ${if (Prefs.get(this, "scheduled") == "1") "실행 중 (15분 간격)" else "미시작 → 3번 버튼"}"
