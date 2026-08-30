@@ -1,0 +1,34 @@
+통화분석 APK — 빌드·설치 안내 (Android Studio 불필요)
+
+[A] APK 만들기 (PC 브라우저, 최초 1회, 약 15분)
+ 1. github.com 가입(무료) → 로그인
+ 2. 우측 상단 "+" → New repository → Repository name: callagent → Private 선택 → Create repository
+ 3. 화면 중간 "uploading an existing file" 클릭
+ 4. 이 zip을 PC에서 압축 해제 → 폴더 안 내용물 전체(app, .github, build.gradle.kts, settings.gradle.kts, gradle.properties)를
+    브라우저 업로드 영역에 드래그 → "Commit changes" (.github 폴더가 안 보이면 탐색기 "숨긴 항목 표시" 켜기)
+ 5. 상단 "Actions" 탭 → "Build APK" 진행(노란 점) → 5~10분 후 초록 체크
+    · 빨간 X면 클릭 → 붉은 줄 캡처해서 보내주면 수정본 드림
+ 6. 저장소 첫 화면 우측 "Releases" → 최신 항목 → CallAgent.apk
+
+[B] 폰 설치
+ 1. 폰 브라우저로 github.com 로그인 → 같은 Releases 페이지 → CallAgent.apk 다운로드
+ 2. 다운로드 알림 탭 → "출처를 알 수 없는 앱 설치 허용" → 설치
+ 3. 앱 실행 → 알림 허용
+ 4. "1. 모든 파일 접근 권한 허용" → 허용
+ 5. "2. 배터리 최적화 제외" → 허용
+ 6. OpenAI API 키, Anthropic API 키 입력. 녹음 폴더는 자동 감지된 경로 확인
+ 7. "기존 녹음파일도 전부 분석" 체크 해제 상태로 "3. 저장 및 자동감시 시작"
+    → 상태창에 "자동감시: 실행 중" 표시
+ 8. 삼성 설정 > 배터리 > 백그라운드 사용 제한 > "절전 예외 앱"에 통화분석 추가 (One UI 필수)
+
+[C] 테스트
+ - 30초 통화 → 통화 종료 후 "지금 스캔" 버튼 → 1~3분 내 "통화분석: 상대방" 알림
+ - 자동 감시는 15분 간격. 알림 오면 앱 화면 아래에 분석 결과 표시
+ - 매일 08:00 이후 첫 스캔 때 "일일 업무목록" 알림
+ - 카카오톡 전송: 카카오 REST API 키·refresh_token 입력 + 체크 후 저장
+
+[D] 원칙
+ - 원본 녹음파일은 읽기만 함. 삭제·수정·이동 없음
+ - 음성은 OpenAI(STT)로, 텍스트는 Anthropic(분석)으로 전송됨. 결과는 폰 내부 DB에만 저장
+ - 같은 파일(내용 동일)은 이름이 바뀌어도 SHA-256 해시로 재분석하지 않음
+ - Whisper 25MB 제한 초과 파일(약 1시간 이상 통화)은 오류 처리됨

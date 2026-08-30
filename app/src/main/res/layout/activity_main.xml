@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout android:orientation="vertical" android:padding="16dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textSize="14sp" android:fontFamily="monospace" android:paddingBottom="8dp"/>
+        <Button android:id="@+id/btnPerm" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="1. 모든 파일 접근 권한 허용"/>
+        <Button android:id="@+id/btnBattery" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="2. 배터리 최적화 제외"/>
+        <EditText android:id="@+id/etOpenai" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="OpenAI API 키" android:inputType="textNoSuggestions"/>
+        <EditText android:id="@+id/etAnthropic" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Anthropic API 키" android:inputType="textNoSuggestions"/>
+        <EditText android:id="@+id/etName" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="내 이름" android:inputType="text"/>
+        <EditText android:id="@+id/etDirs" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="녹음 폴더 경로 (줄바꿈으로 여러 개)" android:inputType="textMultiLine" android:minLines="2"/>
+        <CheckBox android:id="@+id/cbKakao" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="카카오톡 나와의채팅으로도 전송"/>
+        <EditText android:id="@+id/etKakaoRest" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="카카오 REST API 키" android:inputType="textNoSuggestions"/>
+        <EditText android:id="@+id/etKakaoRefresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="카카오 refresh_token" android:inputType="textNoSuggestions"/>
+        <CheckBox android:id="@+id/cbOld" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="기존 녹음파일도 전부 분석 (건당 약 200원 과금)"/>
+        <Button android:id="@+id/btnSave" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="3. 저장 및 자동감시 시작"/>
+        <Button android:id="@+id/btnScan" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="지금 스캔"/>
+        <Button android:id="@+id/btnDaily" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="일일 업무목록 보내기"/>
+        <Button android:id="@+id/btnRetry" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="오류건 재시도"/>
+        <TextView android:id="@+id/tvResults" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textSize="13sp" android:textIsSelectable="true" android:paddingTop="12dp"/>
+    </LinearLayout>
+</ScrollView>
