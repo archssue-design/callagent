@@ -39,20 +39,31 @@ JSON 형식:
         return sttOk && llmOk
     }
 
-    /** 429(무료 한도) 시 대기 후 재시도 */
+    class ApiError(msg: String, val permanent: Boolean) : RuntimeException(msg)
+
+    /** 429·5xx는 대기 후 재시도, 4xx는 즉시 중단 */
     private fun call(req: Request, label: String): String {
         var last = ""
         for (i in 0 until 3) {
             http.newCall(req).execute().use { r ->
                 val s = r.body?.string() ?: ""
                 if (r.isSuccessful) return s
-                last = "$label 실패 ${r.code}: ${s.take(300)}"
-                if (r.code != 429 && r.code < 500) throw RuntimeException(last)
+                last = "$label 실패 ${r.code}: ${s.take(200)}"
+                if (r.code != 429 && r.code < 500) throw ApiError(last, permanent = true)
                 val wait = (r.header("retry-after")?.toLongOrNull() ?: 20L).coerceIn(5L, 90L)
                 Thread.sleep(wait * 1000)
             }
         }
-        throw RuntimeException(last)
+        throw ApiError(last, permanent = false)
+    }
+
+    /** Groq 키 검증: 성공 시 null, 실패 시 사유 */
+    fun testGroqKey(key: String): String? {
+        if (!key.startsWith("gsk_")) return "키 형식 오류 (gsk_ 로 시작해야 함)"
+        return try {
+            val req = Request.Builder().url("https://api.groq.com/openai/v1/models").header("Authorization", "Bearer $key").build()
+            http.newCall(req).execute().use { r -> if (r.isSuccessful) null else "Groq 응답 ${r.code} — ${if (r.code == 401) "키가 틀림" else r.body?.string()?.take(120)}" }
+        } catch (e: Exception) { "네트워크 오류: ${e.message}" }
     }
 
     fun stt(ctx: Context, f: File): String {

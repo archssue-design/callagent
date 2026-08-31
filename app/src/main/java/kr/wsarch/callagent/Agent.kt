@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
@@ -21,10 +22,22 @@ object Agent {
     private val EXT = setOf("m4a", "mp3", "wav", "amr", "3gp", "aac", "ogg")
     val DEFAULT_DIRS = listOf("/storage/emulated/0/Recordings/Call", "/storage/emulated/0/Call", "/storage/emulated/0/TPhoneCallRecords")
     private val FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    private const val MAX_ATTEMPTS = 5
+    private const val RETRY_GAP_MS = 10 * 60 * 1000L
 
     fun isAudio(f: File) = f.extension.lowercase() in EXT
     fun dirs(ctx: Context): List<String> =
         Prefs.get(ctx, "dirs").lines().map { it.trim() }.filter { it.isNotBlank() }.ifEmpty { DEFAULT_DIRS }
+
+    /** 설치 시각 이전 파일은 분석 제외 (cbOld 체크 시 0) */
+    fun cutoff(ctx: Context): Long {
+        if (Prefs.get(ctx, "analyze_old") == "1") return 0L
+        val v = Prefs.get(ctx, "install_ts")
+        if (v.isNotBlank()) return v.toLong()
+        val now = System.currentTimeMillis(); Prefs.set(ctx, "install_ts", now.toString()); return now
+    }
+
+    fun log(ctx: Context, msg: String) { Log.i(TAG, msg); try { Db(ctx).log(msg) } catch (e: Exception) { } }
 
     fun schedule(ctx: Context) {
         val req = PeriodicWorkRequestBuilder<ScanWorker>(15, TimeUnit.MINUTES)
@@ -33,46 +46,57 @@ object Agent {
         Prefs.set(ctx, "scheduled", "1")
     }
 
-    fun candidates(ctx: Context): List<File> = dirs(ctx).map { File(it) }.filter { it.isDirectory }.flatMap { d ->
-        d.walkTopDown().filter { it.isFile && isAudio(it) && it.length() >= 20_000 && System.currentTimeMillis() - it.lastModified() > 90_000 }.toList()
-    }
-
-    /** 설치 이전 파일은 분석 제외로 등록 (해시 없이 경로만) */
-    fun baseline(ctx: Context): Int {
-        val db = Db(ctx); var n = 0
-        for (f in candidates(ctx)) if (!db.hasPath(f.absolutePath)) { db.insert("skip:" + f.absolutePath, f.absolutePath, f.name, "", "", "skipped"); n++ }
-        return n
+    fun candidates(ctx: Context): List<File> {
+        val cut = cutoff(ctx)
+        return dirs(ctx).map { File(it) }.filter { it.isDirectory }.flatMap { d ->
+            d.walkTopDown().filter {
+                it.isFile && isAudio(it) && it.length() >= 20_000 && it.lastModified() >= cut &&
+                    System.currentTimeMillis() - it.lastModified() > 90_000
+            }.toList()
+        }
     }
 
     /** 반환: (처리 건수, 남은 건수) — WorkManager 10분 제한 때문에 1회 최대 maxFiles건 */
     fun scan(ctx: Context, maxFiles: Int = 2): Pair<Int, Int> {
+        Prefs.set(ctx, "last_scan", LocalDateTime.now().format(FMT))
+        if (!Analyzer.keysOk(ctx)) { log(ctx, "API 키 미설정 — 스캔 건너뜀"); return 0 to 0 }
         val db = Db(ctx); var done = 0; var remaining = 0
         for (f in candidates(ctx).sortedBy { it.lastModified() }) {
-            if (db.hasPath(f.absolutePath)) continue
+            val row = db.byPath(f.absolutePath)
+            val retry = row != null && row.status == "retry" && row.attempts < MAX_ATTEMPTS && System.currentTimeMillis() - row.updated > RETRY_GAP_MS
+            if (row != null && !retry) continue
             if (done >= maxFiles) { remaining++; continue }
+            if (row != null) { process(ctx, db, f, row.sha, isRetry = true); done++; continue }
             val sha = sha256(f)
-            if (db.has(sha)) { db.insert("dup:" + f.absolutePath, f.absolutePath, f.name, "", "", "dup"); continue }
-            process(ctx, db, f, sha); done++
+            if (db.has(sha)) { db.insert("dup:" + f.absolutePath, f.absolutePath, f.name, "", "", "dup"); log(ctx, "중복 건너뜀: ${f.name}"); continue }
+            process(ctx, db, f, sha, isRetry = false); done++
         }
+        if (done > 0 || remaining > 0) log(ctx, "스캔: 처리 ${done}건, 대기 ${remaining}건")
         return done to remaining
     }
 
-    private fun process(ctx: Context, db: Db, f: File, sha: String) {
+    private fun process(ctx: Context, db: Db, f: File, sha: String, isRetry: Boolean) {
         val (ct, who) = parseName(f)
-        db.insert(sha, f.absolutePath, f.name, ct.format(FMT), who, "processing")
-        Log.i(TAG, "신규: ${f.name} | $who | $ct")
+        if (isRetry) db.update(sha, "processing", bumpAttempt = true)
+        else db.insert(sha, f.absolutePath, f.name, ct.format(FMT), who, "processing")
+        log(ctx, (if (isRetry) "재시도: " else "신규: ") + "${f.name} | $who | ${ct.format(FMT)}")
         try {
             val text = Analyzer.stt(ctx, f)
+            log(ctx, "STT 완료 ${text.length}자: ${f.name}")
             val res = Analyzer.analyze(ctx, text, ct, who)
             res.put("_transcript", text)
             val msg = Analyzer.format(res)
             db.update(sha, "done", result = res.toString())
+            Prefs.set(ctx, "last_error", "")
             Notify.show(ctx, "통화분석: ${res.optString("통화상대방")}", msg, sha.hashCode())
             Notify.kakao(ctx, msg)
         } catch (e: Exception) {
-            Log.e(TAG, "처리 오류", e)
-            db.update(sha, "error", error = e.message?.take(500))
-            Notify.show(ctx, "통화분석 오류", "${f.name}\n${e.message}".take(400), sha.hashCode())
+            val transient = e is IOException || (e is Analyzer.ApiError && !e.permanent)
+            val m = (e.message ?: e.javaClass.simpleName).take(300)
+            log(ctx, "오류(${if (transient) "재시도 예정" else "중단"}): ${f.name} — $m")
+            Prefs.set(ctx, "last_error", "${f.name}: $m")
+            db.update(sha, if (transient) "retry" else "error", error = m)
+            if (!transient) Notify.show(ctx, "통화분석 오류", "${f.name}\n$m", sha.hashCode())
         }
     }
 

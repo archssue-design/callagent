@@ -2,6 +2,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+val runNo = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+val ksPass = System.getenv("KS_PASS") ?: ""
 android {
     namespace = "kr.wsarch.callagent"
     compileSdk = 34
@@ -9,10 +11,16 @@ android {
         applicationId = "kr.wsarch.callagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = runNo
+        versionName = "1.$runNo"
     }
-    buildTypes { release { isMinifyEnabled = false } }
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.p12"); storePassword = ksPass
+            keyAlias = "callagent"; keyPassword = ksPass
+        }
+    }
+    buildTypes { release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("release") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
 }
